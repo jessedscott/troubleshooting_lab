@@ -5,200 +5,87 @@ metadata:
   name: matrix-chat
 ---
 apiVersion: v1
-data:
-  homeserver.yaml: "server_name: apps.ocp4.example.com \npublic_baseurl: https://synapse.apps.ocp4.example.com/\nweb_client_location:
-    https://element.apps.ocp4.example.com/\nemail:\n  app_name: Matrix Chat\n  notif_from:
-    \"Matrix Chat <noreply@example.com>\"   \n  enable_notifs: false\nreport_stats:
-    False\ndatabase:\n  name: \"psycopg2\"\n  allow_unsafe_locale: True\n  args:\n
-    \   user: \"matrix\"\n    password: \"matrix\"\n    database: \"matrix\"\n    host:
-    \"postgresql\"\n    cp_min: 5\n    cp_max: 10\ntrusted_key_servers:\n
-    \ - server_name: \"matrix.org\"\n"
 kind: ConfigMap
 metadata:
-  name: matrix 
-  namespace: matrix-chat
----
-apiVersion: v1
+  name: conduit-config 
+  namespace: matrix-chat 
 data:
-  POSTGRESQL_DATABASE: bWF0cml4
-  POSTGRESQL_PASSWORD: bWF0cml4
-  POSTGRESQL_USER: bWF0cml4
-kind: Secret
-metadata:
-  name: postgresql
-  namespace: matrix-chat
-type: Opaque
----
-kind: PersistentVolumeClaim
-apiVersion: v1
-metadata:
-  name: matrix
-spec:
-  accessModes:
-    - ReadWriteMany
-  resources:
-    requests:
-      storage: 10Gi
-  storageClassName: nfs-storage
----
-kind: PersistentVolumeClaim
-apiVersion: v1
-metadata:
-  name: mediastore 
-spec:
-  accessModes:
-    - ReadWriteMany
-  resources:
-    requests:
-      storage: 10Gi
-  storageClassName: nfs-storage
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  labels:
-    app: postgresql
-  name: postgresql
-  namespace: matrix-chat
-spec:
-  progressDeadlineSeconds: 600
-  replicas: 1
-  revisionHistoryLimit: 10
-  selector:
-    matchLabels:
-      app: postgresql
-  strategy:
-    rollingUpdate:
-      maxSurge: 25%
-      maxUnavailable: 25%
-    type: RollingUpdate
-  template:
-    metadata:
-      creationTimestamp: null
-      labels:
-        app: postgresql
-    spec:
-      containers:
-      - env:
-        - name: POSTGRESQL_DATABASE
-          valueFrom:
-            secretKeyRef:
-              key: POSTGRESQL_DATABASE
-              name: postgresql
-        - name: POSTGRESQL_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              key: POSTGRESQL_PASSWORD
-              name: postgresql
-        - name: POSTGRESQL_USER
-          valueFrom:
-            secretKeyRef:
-              key: POSTGRESQL_USER
-              name: postgresql
-        image: registry.ocp4.example.com:8443/rhel8/postgresql-15
-        imagePullPolicy: Always
-        name: postgresql-15
-        resources: {}
-        terminationMessagePath: /dev/termination-log
-        terminationMessagePolicy: File
-      dnsPolicy: ClusterFirst
-      restartPolicy: Always
-      schedulerName: default-scheduler
-      securityContext: {}
-      terminationGracePeriodSeconds: 30
+  SERVER_NAME: "matrix"
+  conduit.toml: |
+    [global]
+    server_name = "matrix"
+    database_backend = "rocksdb"
+    database_path = "/var/lib/matrix/"
+    address = "0.0.0.0"
+    port = 6167
+    allow_registration = true
+    registration_token = "redhat"               
+    jwt_secret = "ba39e1cb3c548496cade163b33252788"
+    allow_check_for_updates = false
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  labels:
-    app: postgresql
-  name: postgresql
+  name: matrix
   namespace: matrix-chat
+  labels:
+    app: matrix
 spec:
+  clusterIP: None
   ports:
-  - port: 5432
+  - port: 6167
+    targetPort: 6167
     protocol: TCP
-    targetPort: 5432
   selector:
-    app: postgresql
-  sessionAffinity: None
-  type: ClusterIP
+    app: matrix
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
-  labels:
-    app: matrix 
   name: matrix
   namespace: matrix-chat
 spec:
-  progressDeadlineSeconds: 600
+  serviceName: matrix
   replicas: 1
-  revisionHistoryLimit: 10
   selector:
     matchLabels:
       app: matrix
-  strategy:
-    rollingUpdate:
-      maxSurge: 25%
-      maxUnavailable: 25%
-    type: RollingUpdate
   template:
     metadata:
       labels:
         app: matrix
     spec:
+      terminationGracePeriodSeconds: 60
       containers:
-      - image: ghcr.io/element-hq/synapse:v1.128.0
-        imagePullPolicy: IfNotPresent
-        name: matrix
-        resources: {}
-        terminationMessagePath: /dev/termination-log
-        terminationMessagePolicy: File
+      - name: conduit
+        image: docker.io/matrixconduit/matrix-conduit 
+        env:
+        - name: CONDUIT_CONFIG
+          value: "/etc/config/conduit.toml"
+        ports:
+        - name: http
+          containerPort: 6167
         volumeMounts:
-        - mountPath: /data
-          name: data
-        - mountPath: /media_store
-          name: mediastore
-        - mountPath: /data/homeserver.yaml
-          name: matrix
-          subPath: homeserver.yaml
-      dnsPolicy: ClusterFirst
-      restartPolicy: Always
-      schedulerName: default-scheduler
-      securityContext: {}
-      terminationGracePeriodSeconds: 30
+        - name: conduit-config
+          mountPath: /etc/config
+        - name: matrix-data
+          mountPath: /var/lib/matrix
       volumes:
-      - name: data
-        persistentVolumeClaim:
-          claimName: matrix
-      - name: mediastore
-        persistentVolumeClaim:
-          claimName: mediastore
-      - configMap:
-          defaultMode: 420
+      - name: conduit-config
+        configMap:
+          name: conduit-config
           items:
-          - key: homeserver.yaml
-            path: homeserver.yaml
-          name: matrix 
-        name: matrix 
----
-apiVersion: v1
-kind: Service
-metadata:
-  labels:
-    app: matrix
-  name: matrix
-  namespace: matrix-chat
-spec:
-  ports:
-  - port: 8008
-    protocol: TCP
-    targetPort: 8008
-  selector:
-    app: matrix
-  sessionAffinity: None
-  type: ClusterIP
+          - key: conduit.toml
+            path: conduit.toml
+  volumeClaimTemplates:
+  - metadata:
+      name: matrix-data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: "nfs-storage"
+      resources:
+        requests:
+          storage: 10Gi
 ---
 apiVersion: route.openshift.io/v1
 kind: Route
@@ -347,4 +234,4 @@ spec:
     kind: Service
     name: element
     weight: 100
-  wildcardPolicy: None 
+  wildcardPolicy: None
