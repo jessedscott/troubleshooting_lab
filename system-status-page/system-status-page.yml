@@ -8,10 +8,22 @@
         name: httpd
         state: present
 
-    - name: Place index.html content on web servers 
+    - name: Create root directory for web server
+      ansible.builtin.file:
+        path: /web
+        state: directory
+        mode: '0755'
+
+    - name: Place index.html content on web server 
       ansible.builtin.copy:
         src: files/index.html
-        dest: /var/www/html/index.html
+        dest: /web/index.html
+
+    - name: Update root directory in Apache config
+      ansible.builtin.lineinfile:
+        path: /etc/httpd/conf/httpd.conf
+        regexp: ^DocumentRoot
+        line: DocumentRoot /web
 
     - name: Enable the Apache service
       ansible.builtin.service:
