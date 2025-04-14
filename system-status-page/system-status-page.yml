@@ -25,6 +25,12 @@
         regexp: ^DocumentRoot
         line: DocumentRoot /web
 
+    - name: Manage access to root directory in Apache config
+      ansible.builtin.lineinfile:
+        path: /etc/httpd/conf/httpd.conf
+        regexp: <Directory "/var/www">
+        line: <Directory "/web"
+
     - name: Enable the Apache service
       ansible.builtin.service:
         name: httpd
