@@ -1,1 +1,1 @@
-# ocp_troubleshooting
+# troubleshooting_lab
