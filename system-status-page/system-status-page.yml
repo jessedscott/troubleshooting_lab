@@ -29,7 +29,7 @@
       ansible.builtin.lineinfile:
         path: /etc/httpd/conf/httpd.conf
         regexp: <Directory "/var/www">
-        line: <Directory "/web"
+        line: <Directory "/web">
 
     - name: Enable the Apache service
       ansible.builtin.service:
